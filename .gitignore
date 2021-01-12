@@ -16,3 +16,8 @@
 
 # Binary built from cmd/consul-data-gen
 /consul-data-gen
+/terraform/kv.json
+/terraform/terraform.tfstate
+/terraform/.terraform.tfstate.lock.info
+/terraform/.terraform.lock.hcl
+/terraform/.terraform
