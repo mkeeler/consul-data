@@ -14,10 +14,11 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Binary built from cmd/consul-data-gen
-/consul-data-gen
+# Binary built from cmd/consul-data
+/consul-data
 /terraform/kv.json
 /terraform/terraform.tfstate
 /terraform/.terraform.tfstate.lock.info
 /terraform/.terraform.lock.hcl
 /terraform/.terraform
+/terraform/terraform.tfstate.backup

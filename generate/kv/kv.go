@@ -1,20 +1,15 @@
 package kv
 
 import (
-	"encoding/base64"
 	"fmt"
-	"math/rand"
 
-	petname "github.com/dustinkirkland/golang-petname"
+	"github.com/mkeeler/consul-data/generate/generators"
 )
 
 var (
-	DefaultKeyGenerator   = PetNameKeyGenerator("", 3, "-")
-	DefaultValueGenerator = RandomValueGenerator(64, 1024)
+	DefaultKeyGenerator   = generators.PetNameGenerator("", 3, "-")
+	DefaultValueGenerator = generators.RandomB64Generator(64, 1024)
 )
-
-// Key is the type of value used to index the KV mapping
-type Key string
 
 // Value is the value type of the KV mapping
 type Value struct {
@@ -39,19 +34,13 @@ type Value struct {
 //   }
 //
 // All fields of each object may be omitted if they are empty except for the `Value` field
-type KV map[Key]Value
-
-// KeyGenerator is a function that can generate keys from some source
-type KeyGenerator func() (Key, error)
-
-// Value Generator is a function that can generate KV values from some source.
-type ValueGenerator func() (Value, error)
+type KV map[string]Value
 
 // Config is all the configuration necessary for creating KV data
 type Config struct {
 	NumEntries int
-	KeyGen     KeyGenerator
-	ValueGen   ValueGenerator
+	KeyGen     generators.StringGenerator
+	ValueGen   generators.StringGenerator
 }
 
 // DefaultConfig returns a config with all the defaults filled in.
@@ -63,7 +52,7 @@ func DefaultConfig() Config {
 	}
 }
 
-func genNewKey(existing KV, gen KeyGenerator) (Key, error) {
+func genNewKey(existing KV, gen generators.StringGenerator) (string, error) {
 	for {
 		key, err := gen()
 		if err != nil {
@@ -87,7 +76,7 @@ func Generate(conf Config) (KV, error) {
 	}
 
 	if conf.NumEntries < 1 {
-		return nil, nil
+		return make(KV), nil
 	}
 
 	data := make(KV)
@@ -104,37 +93,8 @@ func Generate(conf Config) (KV, error) {
 			return nil, fmt.Errorf("Failed to generate KV Value: %w", err)
 		}
 
-		data[key] = value
+		data[key] = Value{Value: value}
 	}
 
 	return data, nil
-}
-
-// PetNameKeyGenerator will generate KV
-func PetNameKeyGenerator(prefix string, words int, separator string) KeyGenerator {
-	return func() (Key, error) {
-		return Key(fmt.Sprintf("%s%s", prefix, petname.Generate(words, separator))), nil
-	}
-}
-
-func RandomValueGenerator(minSize int, maxSize int) ValueGenerator {
-	return func() (Value, error) {
-		size := minSize + rand.Intn(maxSize-minSize)
-		raw := make([]byte, size)
-		_, err := rand.Read(raw)
-
-		// Technically math/rand.Read is guaranteed to always return a nil error but
-		// we are checking anyways just in case we switch over to something else like
-		// crypto/rand where the same guarantees might not be in place.
-		if err != nil {
-			return Value{}, fmt.Errorf("Failed to generate random KV value: %w", err)
-		}
-
-		encoded := make([]byte, base64.StdEncoding.EncodedLen(len(raw)))
-		base64.StdEncoding.Encode(encoded, raw)
-
-		return Value{
-			Value: string(encoded),
-		}, nil
-	}
 }
