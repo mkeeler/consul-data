@@ -9,8 +9,13 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul/api"
+	merr "github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/cli"
 	"github.com/mkeeler/consul-data/generate"
+)
+
+const (
+	txnMaxOps = 64
 )
 
 type pushCommand struct {
@@ -21,6 +26,7 @@ type pushCommand struct {
 	randSeed   int64
 	parallel   int
 	quiet      bool
+	useTxn     bool
 
 	flags *flag.FlagSet
 	http  *HTTPFlags
@@ -34,6 +40,7 @@ func newPushCommand(ui cli.Ui) cli.Command {
 
 	flags := flag.NewFlagSet("", flag.ContinueOnError)
 
+	flags.BoolVar(&c.useTxn, "txn", false, "Whether to use the transaction API for pushing data")
 	flags.BoolVar(&c.quiet, "quiet", false, "Whether to suppress output of handling of individual resources")
 	flags.IntVar(&c.parallel, "parallel", 1, "Number of concurrent requests that can be made")
 	flags.Int64Var(&c.randSeed, "seed", 0, "Value to use to seed the pseudo-random number generator with instead of the current time")
@@ -97,6 +104,38 @@ func (c *pushCommand) getData() (*generate.Data, error) {
 	return c.generateData()
 }
 
+type txnManager struct {
+	client *api.Txn
+	ops    api.TxnOps
+}
+
+func (m *txnManager) addOp(op *api.TxnOp) error {
+	m.ops = append(m.ops, op)
+	if len(m.ops) < txnMaxOps {
+		return nil
+	}
+
+	err := m.finish()
+	m.ops = nil
+	return err
+}
+
+func (m *txnManager) finish() error {
+	if len(m.ops) > 0 {
+		_, resp, _, err := m.client.Txn(m.ops, nil)
+		if err != nil {
+			return err
+		}
+
+		for _, txnErr := range resp.Errors {
+			err = merr.Append(err, fmt.Errorf("Failed to apply operation %d: %s", txnErr.OpIndex, txnErr.What))
+		}
+
+		return err
+	}
+	return nil
+}
+
 func (c *pushCommand) pushData(data *generate.Data) error {
 	client, err := c.http.APIClient()
 	if err != nil {
@@ -105,27 +144,50 @@ func (c *pushCommand) pushData(data *generate.Data) error {
 
 	resources := 0
 
+	var txn txnManager
+	if c.useTxn {
+		txn.client = client.Txn()
+	}
+
 	c.ui.Info("Pushing KV data to Consul")
 	kv := client.KV()
+
 	for key, value := range data.KV {
 		if !c.quiet {
 			c.ui.Output(fmt.Sprintf("   Key: %s", key))
 		}
-		pair := api.KVPair{
-			Key:       key,
-			Value:     []byte(value.Value),
-			Flags:     uint64(value.Flags),
-			Namespace: value.Namespace,
-		}
 
-		opts := api.WriteOptions{
-			Datacenter: value.Datacenter,
-			Token:      value.Token,
-		}
+		if c.useTxn {
+			op := api.TxnOp{
+				KV: &api.KVTxnOp{
+					Verb:      api.KVSet,
+					Key:       key,
+					Value:     []byte(value.Value),
+					Flags:     uint64(value.Flags),
+					Namespace: value.Namespace,
+				},
+			}
+			err := txn.addOp(&op)
+			if err != nil {
+				return fmt.Errorf("Failed to push txn: %w", err)
+			}
+		} else {
+			pair := api.KVPair{
+				Key:       key,
+				Value:     []byte(value.Value),
+				Flags:     uint64(value.Flags),
+				Namespace: value.Namespace,
+			}
 
-		_, err := kv.Put(&pair, &opts)
-		if err != nil {
-			return fmt.Errorf("Failed to push key %s: %w", key, err)
+			opts := api.WriteOptions{
+				Datacenter: value.Datacenter,
+				Token:      value.Token,
+			}
+
+			_, err := kv.Put(&pair, &opts)
+			if err != nil {
+				return fmt.Errorf("Failed to push key %s: %w", key, err)
+			}
 		}
 		resources += 1
 	}
@@ -138,17 +200,36 @@ func (c *pushCommand) pushData(data *generate.Data) error {
 			c.ui.Output(fmt.Sprintf("   Node: %s", node.Name))
 		}
 
-		nodeRegistration := api.CatalogRegistration{
-			ID:         node.ID,
-			Node:       node.Name,
-			Address:    node.Address,
-			NodeMeta:   node.Meta,
-			Datacenter: node.Datacenter,
-		}
+		if c.useTxn {
+			op := api.TxnOp{
+				Node: &api.NodeTxnOp{
+					Verb: api.NodeSet,
+					Node: api.Node{
+						ID:         node.ID,
+						Node:       node.Name,
+						Address:    node.Address,
+						Meta:       node.Meta,
+						Datacenter: node.Datacenter,
+					},
+				},
+			}
 
-		_, err := catalog.Register(&nodeRegistration, nil)
-		if err != nil {
-			return fmt.Errorf("Failed to push Node %s: %w", node.Name, err)
+			if err := txn.addOp(&op); err != nil {
+				return fmt.Errorf("Failed to push txn: %w", err)
+			}
+		} else {
+			nodeRegistration := api.CatalogRegistration{
+				ID:         node.ID,
+				Node:       node.Name,
+				Address:    node.Address,
+				NodeMeta:   node.Meta,
+				Datacenter: node.Datacenter,
+			}
+
+			_, err := catalog.Register(&nodeRegistration, nil)
+			if err != nil {
+				return fmt.Errorf("Failed to push Node %s: %w", node.Name, err)
+			}
 		}
 
 		resources += 1
@@ -157,29 +238,58 @@ func (c *pushCommand) pushData(data *generate.Data) error {
 			if !c.quiet {
 				c.ui.Output(fmt.Sprintf("      Service: %s", service.Name))
 			}
-			serviceRegistration := api.CatalogRegistration{
-				ID:             node.ID,
-				Node:           node.Name,
-				Datacenter:     node.Datacenter,
-				SkipNodeUpdate: true,
-				Service: &api.AgentService{
-					ID:      service.ID,
-					Service: service.Name,
-					Address: service.Address,
-					Port:    service.Port,
-					Meta:    service.Meta,
-				},
-			}
 
-			_, err := catalog.Register(&serviceRegistration, nil)
-			if err != nil {
-				return fmt.Errorf("Failed to push Service %s for node %s: %w", service.Name, node.Name, err)
+			if c.useTxn {
+				op := api.TxnOp{
+					Service: &api.ServiceTxnOp{
+						Verb: api.ServiceSet,
+						Node: node.Name,
+						Service: api.AgentService{
+							ID:      service.ID,
+							Service: service.Name,
+							Address: service.Address,
+							Port:    service.Port,
+							Meta:    service.Meta,
+						},
+					},
+				}
+
+				err := txn.addOp(&op)
+				if err != nil {
+					return fmt.Errorf("Failed to push txn: %w", err)
+				}
+			} else {
+				serviceRegistration := api.CatalogRegistration{
+					ID:             node.ID,
+					Node:           node.Name,
+					Datacenter:     node.Datacenter,
+					SkipNodeUpdate: true,
+					Service: &api.AgentService{
+						ID:      service.ID,
+						Service: service.Name,
+						Address: service.Address,
+						Port:    service.Port,
+						Meta:    service.Meta,
+					},
+				}
+
+				_, err := catalog.Register(&serviceRegistration, nil)
+				if err != nil {
+					return fmt.Errorf("Failed to push Service %s for node %s: %w", service.Name, node.Name, err)
+				}
 			}
 
 			resources += 1
 		}
 	}
 	c.ui.Info("Finished pushing Catalog data to Consul")
+
+	if c.useTxn {
+		err := txn.finish()
+		if err != nil {
+			return fmt.Errorf("Failed to push txn: %w", err)
+		}
+	}
 
 	c.ui.Info(fmt.Sprintf("Total Resources Created: %d", resources))
 	return nil
