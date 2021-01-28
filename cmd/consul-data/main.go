@@ -34,6 +34,7 @@ func main() {
 	c.Commands = map[string]cli.CommandFactory{
 		"generate": func() (cli.Command, error) { return newGenerateCommand(ui), nil },
 		"push":     func() (cli.Command, error) { return newPushCommand(ui), nil },
+		"describe": func() (cli.Command, error) { return newDescribeCommand(ui), nil },
 	}
 
 	exitStatus, err := c.Run()

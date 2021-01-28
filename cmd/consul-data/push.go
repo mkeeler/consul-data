@@ -83,23 +83,9 @@ func (c *pushCommand) generateData() (*generate.Data, error) {
 	return generate.GenerateAll(conf)
 }
 
-func (c *pushCommand) loadData() (*generate.Data, error) {
-	raw, err := ioutil.ReadFile(c.dataPath)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to read data from %s: %w", c.dataPath, err)
-	}
-
-	var data generate.Data
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, fmt.Errorf("Failed to parse JSON data from %s: %w", c.dataPath, err)
-	}
-
-	return &data, nil
-}
-
 func (c *pushCommand) getData() (*generate.Data, error) {
 	if c.dataPath != "" {
-		return c.loadData()
+		return loadData(c.dataPath)
 	}
 	return c.generateData()
 }
