@@ -56,7 +56,7 @@ func (c *describeCommand) Run(args []string) int {
 
 	c.ui.Info(fmt.Sprintf("Keys:     %d", len(data.KV)))
 	c.ui.Info(fmt.Sprintf("Nodes:    %d", len(data.Catalog)))
-	c.ui.Info(fmt.Sprintf("services: %d", svcCount))
+	c.ui.Info(fmt.Sprintf("Services: %d", svcCount))
 
 	return 0
 }
