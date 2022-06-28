@@ -119,7 +119,7 @@ func (c *UserConfig) ToGeneratorConfig() (Config, error) {
 }
 
 func (c *UserConfig) Normalize() {
-	if c.NumNodes <= 0 {
+	if c.NumNodes < 0 {
 		c.NumNodes = DefaultNumNodes
 	}
 
