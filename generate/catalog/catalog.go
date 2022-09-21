@@ -14,13 +14,15 @@ var (
 	DefaultMetaValueGenerator   = generators.RandomB64Generator(64, 128)
 	DefaultAddressGenerator     = generators.RandomTestingIPGenerator()
 
-	DefaultNumNodes           = 1024
-	DefaultMinServicesPerNode = 8
-	DefaultMaxServicesPerNode = 32
-	DefaultMinMetaPerNode     = 4
-	DefaultMaxMetaPerNode     = 8
-	DefaultMinMetaPerService  = 4
-	DefaultMaxMetaPerService  = 8
+	DefaultNumNodes               = 1024
+	DefaultMinServicesPerNode     = 8
+	DefaultMaxServicesPerNode     = 32
+	DefaultMinInstancesPerService = 1
+	DefaultMaxInstancesPerService = 1
+	DefaultMinMetaPerNode         = 4
+	DefaultMaxMetaPerNode         = 8
+	DefaultMinMetaPerService      = 4
+	DefaultMaxMetaPerService      = 8
 )
 
 // Node is the representation of a node
@@ -34,6 +36,11 @@ type Node struct {
 }
 
 type Service struct {
+	Name      string
+	Instances []*ServiceInstance
+}
+
+type ServiceInstance struct {
 	Name    string
 	Address string
 	ID      string `json:",omitempty"`
@@ -46,34 +53,39 @@ type Catalog []*Node
 
 // Config is all the configuration necessary for creating KV data
 type Config struct {
-	NumNodes           int
-	MinServicesPerNode int
-	MaxServicesPerNode int
-	MinMetaPerNode     int
-	MaxMetaPerNode     int
-	MinMetaPerService  int
-	MaxMetaPerService  int
-	NodeGen            generators.StringGenerator
-	ServiceGen         generators.StringGenerator
-	MetaKeyGen         generators.StringGenerator
-	MetaValueGen       generators.StringGenerator
-	AddressGen         generators.IPGenerator
+	NumNodes               int
+	MinServicesPerNode     int
+	MaxServicesPerNode     int
+	MinInstancesPerService int
+	MaxInstancesPerService int
+	MinMetaPerNode         int
+	MaxMetaPerNode         int
+	MinMetaPerService      int
+	MaxMetaPerService      int
+	NodeGen                generators.StringGenerator
+	ServiceGen             generators.StringGenerator
+	ServiceIDGen           generators.StringGenerator
+	MetaKeyGen             generators.StringGenerator
+	MetaValueGen           generators.StringGenerator
+	AddressGen             generators.IPGenerator
 }
 
 // DefaultConfig returns a config with all the defaults filled in.
 func DefaultConfig() Config {
 	return Config{
-		NumNodes:           DefaultNumNodes,
-		MinServicesPerNode: DefaultMinServicesPerNode,
-		MaxServicesPerNode: DefaultMaxServicesPerNode,
-		MinMetaPerNode:     DefaultMinMetaPerNode,
-		MaxMetaPerNode:     DefaultMaxMetaPerNode,
-		MinMetaPerService:  DefaultMinMetaPerService,
-		MaxMetaPerService:  DefaultMaxMetaPerService,
-		NodeGen:            DefaultNodeNameGenerator,
-		ServiceGen:         DefaultServiceNameGenerator,
-		MetaKeyGen:         DefaultMetaKeyGenerator,
-		AddressGen:         DefaultAddressGenerator,
+		NumNodes:               DefaultNumNodes,
+		MinServicesPerNode:     DefaultMinServicesPerNode,
+		MaxServicesPerNode:     DefaultMaxServicesPerNode,
+		MinInstancesPerService: DefaultMinInstancesPerService,
+		MaxInstancesPerService: DefaultMaxInstancesPerService,
+		MinMetaPerNode:         DefaultMinMetaPerNode,
+		MaxMetaPerNode:         DefaultMaxMetaPerNode,
+		MinMetaPerService:      DefaultMinMetaPerService,
+		MaxMetaPerService:      DefaultMaxMetaPerService,
+		NodeGen:                DefaultNodeNameGenerator,
+		ServiceGen:             DefaultServiceNameGenerator,
+		MetaKeyGen:             DefaultMetaKeyGenerator,
+		AddressGen:             DefaultAddressGenerator,
 	}
 }
 
@@ -122,7 +134,10 @@ func (g *generatorState) svcID(node string, svc string) string {
 }
 
 func (g *generatorState) genMeta(minEntries int, maxEntries int, keyGen generators.StringGenerator, valueGen generators.StringGenerator) (map[string]string, error) {
-	numEntries := rand.Intn(maxEntries-minEntries) + minEntries
+	numEntries := minEntries
+	if minEntries < maxEntries {
+		numEntries = rand.Intn(maxEntries-minEntries) + minEntries
+	}
 
 	meta := make(map[string]string)
 	for i := 0; i < numEntries; i++ {
@@ -153,11 +168,34 @@ func (g *generatorState) genServiceMeta(conf Config) (map[string]string, error) 
 }
 
 func (g *generatorState) genService(nodeName string, conf Config) (*Service, error) {
+	numInstances := conf.MinInstancesPerService
+	if conf.MinInstancesPerService < conf.MaxInstancesPerService {
+		numInstances = rand.Intn(conf.MaxInstancesPerService-conf.MinInstancesPerService) + conf.MinInstancesPerService
+	}
+
 	svcName, err := conf.ServiceGen()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate service name: %w", err)
 	}
 
+	data := make([]*ServiceInstance, 0, numInstances)
+
+	for i := 0; i < numInstances; i++ {
+		service, err := g.genServiceInstance(nodeName, svcName, conf)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to generate Service: %w", err)
+		}
+
+		data = append(data, service)
+	}
+
+	return &Service{
+		Name:      svcName,
+		Instances: data,
+	}, nil
+}
+
+func (g *generatorState) genServiceInstance(nodeName string, svcName string, conf Config) (*ServiceInstance, error) {
 	addr, err := conf.AddressGen()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate service address: %w", err)
@@ -168,7 +206,7 @@ func (g *generatorState) genService(nodeName string, conf Config) (*Service, err
 		return nil, fmt.Errorf("Failed to generate service meta: %w", err)
 	}
 
-	return &Service{
+	return &ServiceInstance{
 		Name:    svcName,
 		Address: addr.String(),
 		ID:      g.svcID(nodeName, svcName),
@@ -178,7 +216,10 @@ func (g *generatorState) genService(nodeName string, conf Config) (*Service, err
 }
 
 func (g *generatorState) genServices(nodeName string, conf Config) ([]*Service, error) {
-	numServices := rand.Intn(conf.MaxServicesPerNode-conf.MinServicesPerNode) + conf.MinServicesPerNode
+	numServices := conf.MinServicesPerNode
+	if conf.MinServicesPerNode < conf.MaxServicesPerNode {
+		numServices = rand.Intn(conf.MaxServicesPerNode-conf.MinServicesPerNode) + conf.MinServicesPerNode
+	}
 
 	data := make([]*Service, 0, numServices)
 

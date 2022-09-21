@@ -47,13 +47,15 @@ const (
 )
 
 type UserConfig struct {
-	NumNodes           int
-	MinServicesPerNode int
-	MaxServicesPerNode int
-	MinMetaPerNode     int
-	MaxMetaPerNode     int
-	MinMetaPerService  int
-	MaxMetaPerService  int
+	NumNodes               int
+	MinServicesPerNode     int
+	MaxServicesPerNode     int
+	MinInstancesPerService int
+	MaxInstancesPerService int
+	MinMetaPerNode         int
+	MaxMetaPerNode         int
+	MinMetaPerService      int
+	MaxMetaPerService      int
 
 	NodeType      NodeType
 	ServiceType   ServiceType
@@ -71,13 +73,15 @@ func (c *UserConfig) ToGeneratorConfig() (Config, error) {
 	c.Normalize()
 
 	conf := Config{
-		NumNodes:           c.NumNodes,
-		MinServicesPerNode: c.MinServicesPerNode,
-		MaxServicesPerNode: c.MaxServicesPerNode,
-		MinMetaPerNode:     c.MinMetaPerNode,
-		MaxMetaPerNode:     c.MaxMetaPerNode,
-		MinMetaPerService:  c.MinMetaPerService,
-		MaxMetaPerService:  c.MaxMetaPerService,
+		NumNodes:               c.NumNodes,
+		MinServicesPerNode:     c.MinServicesPerNode,
+		MaxServicesPerNode:     c.MaxServicesPerNode,
+		MinInstancesPerService: c.MinInstancesPerService,
+		MaxInstancesPerService: c.MaxInstancesPerService,
+		MinMetaPerNode:         c.MinMetaPerNode,
+		MaxMetaPerNode:         c.MaxMetaPerNode,
+		MinMetaPerService:      c.MinMetaPerService,
+		MaxMetaPerService:      c.MaxMetaPerService,
 	}
 
 	switch c.NodeType {

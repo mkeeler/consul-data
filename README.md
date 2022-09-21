@@ -156,6 +156,8 @@ Command Options
         "NumNodes": 250,
         "MinServicesPerNode": 4,
         "MaxServicesPerNode": 8,
+        "MinInstancesPerService": 1,
+        "MaxInstancesPerService": 1,
         "MinMetaPerNode": 2,
         "MaxMetaPerNode": 16,
         "MinMetaPerService": 5,
@@ -169,24 +171,24 @@ Command Options
          "NodePetNames": {
             "Prefix": "",
             "Segments": 3,
-            "Separator": "-",
+            "Separator": "-"
         },
         
         "ServicePetNames": {
             "Prefix": "",
             "Segments": 3,
-            "Separator": "-",
+            "Separator": "-"
         },
         
         "MetaKeyPetNames": {
             "Prefix": "",
             "Segments": 3,
-            "Separator": "-",
+            "Separator": "-"
         },
         
         "MetaValueRandomB64": {
             "MinSize": 64,
-            "MaxSize": 128,
+            "MaxSize": 128
         }
     }
 }

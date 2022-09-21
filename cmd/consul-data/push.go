@@ -238,47 +238,48 @@ func (c *pushCommand) pushData(data *generate.Data) error {
 					c.ui.Output(fmt.Sprintf("      Service: %s", service.Name))
 				}
 
-				if c.useTxn {
-					op := api.TxnOp{
-						Service: &api.ServiceTxnOp{
-							Verb: api.ServiceSet,
-							Node: node.Name,
-							Service: api.AgentService{
-								ID:      service.ID,
-								Service: service.Name,
-								Address: service.Address,
-								Port:    service.Port,
-								Meta:    service.Meta,
+				for _, instance := range service.Instances {
+					if c.useTxn {
+						op := api.TxnOp{
+							Service: &api.ServiceTxnOp{
+								Verb: api.ServiceSet,
+								Node: node.Name,
+								Service: api.AgentService{
+									ID:      instance.ID,
+									Service: instance.Name,
+									Address: instance.Address,
+									Port:    instance.Port,
+									Meta:    instance.Meta,
+								},
 							},
-						},
-					}
+						}
 
-					err := txn.addOp(&op)
-					if err != nil {
-						return fmt.Errorf("Failed to push txn: %w", err)
-					}
-				} else {
-					serviceRegistration := api.CatalogRegistration{
-						ID:             node.ID,
-						Node:           node.Name,
-						Datacenter:     node.Datacenter,
-						SkipNodeUpdate: true,
-						Service: &api.AgentService{
-							ID:      service.ID,
-							Service: service.Name,
-							Address: service.Address,
-							Port:    service.Port,
-							Meta:    service.Meta,
-						},
-					}
+						err := txn.addOp(&op)
+						if err != nil {
+							return fmt.Errorf("Failed to push txn: %w", err)
+						}
+					} else {
+						serviceRegistration := api.CatalogRegistration{
+							ID:             node.ID,
+							Node:           node.Name,
+							Datacenter:     node.Datacenter,
+							SkipNodeUpdate: true,
+							Service: &api.AgentService{
+								ID:      instance.ID,
+								Service: instance.Name,
+								Address: instance.Address,
+								Port:    instance.Port,
+								Meta:    instance.Meta,
+							},
+						}
 
-					_, err := catalog.Register(&serviceRegistration, nil)
-					if err != nil {
-						return fmt.Errorf("Failed to push Service %s for node %s: %w", service.Name, node.Name, err)
+						_, err := catalog.Register(&serviceRegistration, nil)
+						if err != nil {
+							return fmt.Errorf("Failed to push Service %s for node %s: %w", service.Name, node.Name, err)
+						}
 					}
+					resources += 1
 				}
-
-				resources += 1
 			}
 		}
 		if c.useTxn {
